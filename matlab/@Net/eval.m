@@ -50,6 +50,10 @@ function eval(net, inputs, mode, derOutput, accumulateParamDers)
     accumulateParamDers = false ;
   end
   
+  % newInputVars determines whether variable sizes need to be recomputed
+  % before deletion
+  newInputVars = false;
+  
   % set inputs
   for i = 1 : 2 : numel(inputs) - 1
     var = net.getVarIndex(inputs{i}) ;
@@ -73,12 +77,13 @@ function eval(net, inputs, mode, derOutput, accumulateParamDers)
   if isfield(net.inputs, 'testMode')
     net.vars{net.inputs.testMode} = testMode ;
   end
-
-
+  
+  
   % use local variables for efficiency
   forward = net.forward ;
   vars = net.vars ;
-  conserveMemory = net.conserveMemory;
+  conserveMemoryForward = net.conserveMemory(1);
+  conserveMemoryBackward = net.conserveMemory(2);
   net.vars = {} ;  % allows Matlab to release memory when needed
 
   % forward pass
@@ -94,6 +99,16 @@ function eval(net, inputs, mode, derOutput, accumulateParamDers)
       end
       [out{:}] = layer.func(args{:}) ;
       vars(layer.outputVar) = out(layer.outputArgPos);
+      
+      % delete non precious variables not needed for backward pass
+      if newInputVars && conserveMemoryForward && numel(layer.deleteVars)
+        for i = 1:numel(layer.deleteVars)
+          % save size and type proxy struct for layers like reshape
+          v = vars{layer.deleteVars(i)} ;
+         	vars{layer.deleteVars(i)} = struct('size',size(v),...
+            'type', cast(0,'like',v)) ;
+        end
+      end
     end
   end
 
@@ -167,7 +182,7 @@ function eval(net, inputs, mode, derOutput, accumulateParamDers)
       end
       
       % remove derivatives that are no longer needed
-      if conserveMemory
+      if conserveMemoryBackward
         vars(layer.deleteVars) = {[]};
       end
     end
